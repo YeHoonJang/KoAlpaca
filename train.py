@@ -14,6 +14,7 @@
 
 import copy
 import logging
+import pdb
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Sequence
 
@@ -23,6 +24,12 @@ from torch.utils.data import Dataset
 from transformers import Trainer
 
 import utils
+
+import os
+# print("here", torch.cuda.max_memory_allocated(torch.cuda.current_device()))
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+
+torch.cuda.empty_cache()
 
 IGNORE_INDEX = -100
 DEFAULT_PAD_TOKEN = "[PAD]"
@@ -176,6 +183,7 @@ class DataCollatorForSupervisedDataset(object):
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
         )
+        print("input_ids.size():", input_ids.size())
         labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
         return dict(
             input_ids=input_ids,
@@ -200,13 +208,17 @@ def train():
         cache_dir=training_args.cache_dir,
     )
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
+
+    # tokenizer = transformers.AutoTokenizer.from_pretrained(
+    tokenizer = transformers.LlamaTokenizer.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
         model_max_length=training_args.model_max_length,
         padding_side="right",
         use_fast=False,
+        batch=8
     )
+
     if tokenizer.pad_token is None:
         smart_tokenizer_and_embedding_resize(
             special_tokens_dict=dict(pad_token=DEFAULT_PAD_TOKEN),
@@ -221,8 +233,8 @@ def train():
                 "unk_token": DEFAULT_UNK_TOKEN,
             }
         )
-
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+    # Trainer 의 is_model_parallel 옵션이 multiGPU 쓸 지 말 지
     trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
     trainer.train()
     trainer.save_state()
